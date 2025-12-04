@@ -16,6 +16,13 @@ def create_back_button(nav: str):
     return keyboard
 
 
+def create_regions_markup_kb(regions_list: list, nav: str):
+    keyboard = InlineKeyboardBuilder()
+    for region in regions_list:
+        keyboard.add(InlineKeyboardButton(text=region["name"],callback_data=f"region_{region['name']}"))
+    keyboard.add(InlineKeyboardButton(text="⬅️ Back", callback_data=f"nav_{nav}"))
+    return keyboard.adjust(2).as_markup()
+
 def create_markap_kb(name, url):
     if name == "None" or url== "None":
         return None
