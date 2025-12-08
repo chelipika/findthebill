@@ -6,8 +6,7 @@ import database.requests as rq
 
 import requests
 import json
-from datetime import datetime, timedelta
-from collections import defaultdict
+from datetime import datetime
 
 
 from aiogram import F, Bot
@@ -46,6 +45,7 @@ urlProfile = "/api/v1/accounts/Profile"
 urlHomeList = "/api/v1/home/HomeList"
 urlRegion = "/api/v1/common/DistrictList?region="
 urlCountry = "/api/v1/common/RegionList?uz"
+urlElectrocityAccountSearch = "/api/v1/electricity/AccountSearch"
 newURL = url+"/api/v1/regions"
 
 
@@ -63,6 +63,7 @@ class Ids(StatesGroup):
 
 
 
+
 class GroupMsg(StatesGroup):
     img = State()
     audio = State()
@@ -73,18 +74,86 @@ class GroupMsg(StatesGroup):
 
 class Gen(StatesGroup):
     wait = State()
+async def format_utility_info(data: dict) -> str:
+    """
+    Takes a JSON dictionary of utility data and returns a formatted string.
+    """
+    
+    # 1. Helper function to format money (e.g., 172749.63 -> 172 749.63)
+    def money_fmt(value):
+        try:
+            val = float(value)
+            return f"{val:,.2f}".replace(",", " ")
+        except (ValueError, TypeError):
+            return value
 
+    # 2. Parse and format dates
+    try:
+        # Parse '2025-12-06T00:00:00' -> '06.12.2025'
+        read_date = datetime.fromisoformat(data.get('last_readings_date', '')).strftime('%d.%m.%Y')
+    except ValueError:
+        read_date = data.get('last_readings_date', '')
+
+    try:
+        # Parse updated_at (handling the 'Z' if present)
+        updated_raw = data.get('updated_at', '').replace('Z', '+00:00')
+        updated_time = datetime.fromisoformat(updated_raw).strftime('%d.%m.%Y %H:%M')
+    except ValueError:
+        updated_time = data.get('updated_at', '')
+
+    # 3. Get Analytics data safely
+    analytics = data.get('analytics', {})
+
+    # 4. Build the text message
+    text = (
+        f"<b>🧾 Hisob raqam ma'lumotlari:</b>\n"
+        f"🆔 <b>Hisob raqam:</b> <code>{data.get('account_number')}</code>\n\n"
+        
+        f"💰 <b>Joriy Balans:</b> {money_fmt(data.get('balance', 0))} so'm\n"
+        f"⚡️ <b>Bu oydagi iste'mol:</b> {data.get('usage_this_month')} birlik\n\n"
+        
+        f"📊 <b>Ko'rsatkichlar:</b>\n"
+        f"• Oxirgi ko'rsatkich: {money_fmt(data.get('last_readings_value', 0))}\n"
+        f"• Olingan sana: {read_date}\n\n"
+        
+        f"💵 <b>Hisob-kitob (Analitika):</b>\n"
+        f"• Bu oy uchun: {money_fmt(analytics.get('this_month', 0))} so'm\n"
+        f"• O'tgan oy uchun: {money_fmt(analytics.get('previous_month', 0))} so'm\n\n"
+        
+        f"🔄 <i>Ma'lumot yangilangan vaqt: {updated_time}</i>"
+    )
+
+    return text
+async def electricity_user_account_refresh(userElecInId):
+    data = {
+    "id": f"{userElecInId}" # id of water account
+    }
+    response = requests.post(url=f"{url}{urlElectrocity}", headers=headers, json=data)
+    with open("test.json", "w") as file:
+        json.dump(response.json(), file, indent=4)
+    return response.json()
+async def user_get_electricity_id(electricityGovId, districtId):
+    data = {
+    "search_by": "ACCOUNT_NUMBER",
+    "search_value": f"{electricityGovId}",
+    "district": f"{districtId}"
+    }
+    response = requests.post(url=f"{url}{urlElectrocityAccountSearch}", headers=headers, json=data)
+    return response.json()
+
+async def parse_user_bill_id(data):
+    return data[0]["id"]
 
 async def get_state_info(data: list):
     return data["id"], data["name"], data["natural_gas_id"], data["electricity_id"]
 
-async def get_homes_content(tgId):
-    home_names = await rq.get_all_home_names()
-    reply_markup = kb.create_home_markup_kb(home_names, tgId)
-    return reply_markup, home_names
+
 async def get_bill_electrocity(electroId):
     response = requests.get(url=f"{url}{urlHomeList}", headers=headers)
     return str(response.text)
+
+
+
 async def get_country_regions():
     response = requests.get(url=f"{url}{urlCountry}",headers=headers)
     data = response.json()
@@ -126,29 +195,50 @@ async def forward_channel_post(message: Message):
 
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext):
-    await message.answer(await get_bill_electrocity(12))
     user_id = message.from_user.id
     await rq.set_user(tg_id=user_id)
+    home_names_of_user = await rq.get_home_name(user_id)
+    home_names_of_user = list(home_names_of_user)
+    if home_names_of_user != []:
+        reply_markup = kb.create_home_markup_kb(home_names_of_user, user_id)
+    else:
+        reply_markup = kb.home_page
+    await message.answer("Salom, bu bot bilan kop narsa qilsangiz boladi", reply_markup=reply_markup)
+
+
+@router.callback_query(F.data == "create_home")
+async def create_home(callback: CallbackQuery, state: FSMContext):
+    await callback.answer() 
     await state.set_state(Ids.homeName)
-    await message.answer("Uyni nomini kiriting (Masalan: Uy1, Asaka kvartira va hokazo)")
+    await callback.message.answer("Uyni nomini kiriting (Masalan: Uy1, Asaka kvartira va hokazo)")
 
 @router.message(Ids.homeName)
 async def get_home_name(message: Message, state: FSMContext):
     await state.update_data(homeName=message.text)
     await rq.set_home_name(tg_id=message.from_user.id, home_name=message.text)
-    await state.set_state(Ids.electricity_id)
-    await message.answer("Elektr energiya hisoblagich ID sini kiriting")
+    await state.clear()
+    await message.answer(f"Uyingiz {message.text} sahlandi,Nima qilmoqchisiz?:")
 
 
 
 
 @router.message(Ids.electricity_id)
 async def get_electricity_id(message: Message, state: FSMContext):
-    await state.update_data(electricity_id=message.text)
-    data = await state.get_data()
-    await rq.set_electricity_id(home_name=data['homeName'],electricity_id=message.text)
-    await message.answer("Siz muvaffaqiyatli ro'yxatdan o'tdingiz!")
-    await message.answer(f"Sizning uyingiz nomi: {data['homeName']}\nSizning elektr energiya hisoblagich ID si: {data['electricity_id']}")
+    context_data = await state.get_data()
+    
+    
+    saved_district_id = context_data.get("district_id")
+    
+    user_input = message.text
+    
+    user_info_backend = await user_get_electricity_id(user_input, saved_district_id) 
+    # print(user_info_backend)
+    tmp_message = await message.answer("Ma'lumotlar qabul qilindi.")
+    user_bill_data_backend = await electricity_user_account_refresh(user_info_backend[0]["id"])
+    # print(user_bill_data_backend)
+    await tmp_message.edit_text("Ma'lumotlarni jonatilyabti.")
+    readable_text = await format_utility_info(user_bill_data_backend)
+    await tmp_message.edit_text(readable_text, parse_mode="HTML")
     await state.clear()
 
 @router.message(Command("profile"))
@@ -166,23 +256,71 @@ async def regions_test(message: Message):
 
 @router.message(Command("homes"))
 async def homes(message: Message):
-    reply_markup, home_names = await get_homes_content(message.from_user.id)
-    await message.answer("Ro'yxatdagi barcha uylar nomlari:\n" + "\n".join(home_names), reply_markup=reply_markup)
+    user_id = message.from_user.id
+    home_names_of_user = await rq.get_home_name(user_id)
+    reply_markup = kb.create_home_markup_kb(home_names_of_user, user_id)
+    await message.answer("Salom, bu bot bilan kop narsa qilsangiz boladi", reply_markup=reply_markup)
 
 
 
 
-@router.callback_query(F.data.startswith("region_"))
+@router.callback_query(F.data.startswith("state_"))
 async def get_state_regions_query(callback :CallbackQuery):
     parts = callback.data.split("_")
     await callback.answer(parts[1])
     data = await get_country_regions()
     for state in data:
         if parts[1] == state["name"]:
-            id, name, natural_gas_id, electricity_id = await get_state_info(state)
+            id, name, elecId, gasId = await get_state_info(state)
             data = await get_state_regions(id)
-            reply_markup = kb.create_regions_markup_kb(data,"countryRegions")
+            reply_markup = kb.create_state_regions_markup_kb(data,"countryRegions", name)
             await callback.message.edit_text("Viloyatingizni tanglang",reply_markup=reply_markup)
+
+@router.callback_query(F.data.startswith("region_"))
+async def fill_regions_elecId_query(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    await callback.answer(parts[1])
+    country_states = await get_country_regions()
+    for state_item in country_states:
+        if parts[2] == state_item["name"]:
+            id, name, gasId, elecId = await get_state_info(state_item)
+            break
+    data = await get_state_regions(id)
+    
+    for region_item in data:
+        if parts[1] == region_item["name"]:
+            
+            if region_item['electricity_id'] == None:
+                elec_prefix = elecId
+            else:
+                elec_prefix = f"{elecId}{region_item['electricity_id']}"
+
+            if region_item['natural_gas_id'] == None:
+                gas_prefix = gasId
+            else:
+                gas_prefix = f"{gasId}{region_item['natural_gas_id']}"
+            
+            await callback.message.edit_text(
+                f"Sizning Electrik regioningiz: {region_item['name']}\n\n"
+                f"Bu regioni Electrik tarmoq boshlanish IDsi: {elec_prefix}\n\n"
+                f"Bu regioni Gaz tarmoq boshlanish IDsi: {gas_prefix}"
+            )
+            
+            await state.update_data(
+                district_id=region_item['id'], 
+                region_elec_id=region_item['electricity_id'],
+                region_gas_id=region_item['natural_gas_id']
+            )
+            
+            await state.set_state(Ids.electricity_id)
+            
+            await callback.message.answer(
+                f"Agarda siz Electrik ID ulamoqchi bolsez elec_ID kiriting...\n\n"
+                f"Agarda siz Gaz ID ulamoqchi bolsez gas_ID kiriting..."
+            )
+            # Break the loop once found to prevent unnecessary iterations
+            break
+
 
 
 
@@ -207,9 +345,10 @@ async def user_navigation_query(callback: CallbackQuery):
     match parts_nav[1]:
         case "homes":
                 user_id = callback.from_user.id
-                reply_markup, home_names = await get_homes_content(user_id)
+                home_names_of_user = await rq.get_home_name(user_id)
+                reply_markup = kb.create_home_markup_kb(home_names_of_user, user_id)
                 try:
-                    await callback.message.edit_text(text=f"Sizning uylaringinz: {home_names}", reply_markup=reply_markup)
+                    await callback.message.edit_text(text=f"Salom, bu bot bilan kop narsa qilsangiz boladi", reply_markup=reply_markup)
                 except Exception:
                     # Ignore if content hasn't changed
                     pass
