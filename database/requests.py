@@ -28,7 +28,7 @@ async def get_electricity_id(home_name):
 async def get_home_name(tg_id):
     async with async_session() as session:
         result = await session.execute(select(HomeName.home_name).where(HomeName.tg_id == tg_id))
-        user_ids = result.scalars().first()  # Returns a list of tg_id values
+        user_ids = result.scalars()
         return user_ids
     
 async def get_all_home_names():
