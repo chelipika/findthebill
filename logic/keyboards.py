@@ -2,6 +2,16 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 
+home_page = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="Uyni qoshish", callback_data="create_home")],
+])
+
+
+
+## TODAY
+## TODO: make home page, create home section, choose home
+## TODO: add home to db, when home is chosen add elec, if already added check elec button
+
 
 def create_home_markup_kb(home,tgId):
     keyboard = InlineKeyboardBuilder()
@@ -19,7 +29,15 @@ def create_back_button(nav: str):
 def create_regions_markup_kb(regions_list: list, nav: str):
     keyboard = InlineKeyboardBuilder()
     for region in regions_list:
-        keyboard.add(InlineKeyboardButton(text=region["name"],callback_data=f"region_{region['name']}"))
+        keyboard.add(InlineKeyboardButton(text=region["name"],callback_data=f"state_{region['name']}"))
+    keyboard.add(InlineKeyboardButton(text="⬅️ Back", callback_data=f"nav_{nav}"))
+    return keyboard.adjust(2).as_markup()
+
+
+def create_state_regions_markup_kb(regions_list: list, nav: str, state_name):
+    keyboard = InlineKeyboardBuilder()
+    for region in regions_list:
+        keyboard.add(InlineKeyboardButton(text=region["name"],callback_data=f"region_{region['name']}_{state_name}"))
     keyboard.add(InlineKeyboardButton(text="⬅️ Back", callback_data=f"nav_{nav}"))
     return keyboard.adjust(2).as_markup()
 
