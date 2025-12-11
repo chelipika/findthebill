@@ -1,6 +1,6 @@
 
 
-from config import TOKEN, CHANNEL_ID, authToken
+from config import TOKEN, CHANNEL_ID
 import database.requests as rq
 
 
@@ -19,12 +19,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import ChatMemberUpdated
 
 
-
 bot = Bot(token=TOKEN)
 import logic.keyboards as kb
 
 url = "https://hgt-backend.io"
-headers = {
+
+async def create_header(authToken):
+    headers = {
     "accept-encoding": "gzip",
     "accept-language": "uz",
     "app-version": "2.0.9",
@@ -34,9 +35,8 @@ headers = {
     "device-name": "vivo V2266A",
     "device-type": "ANDROID",
     "host": "hgt-backend.io",
-    "User-Agent": "V2266A"
-}
-
+    "User-Agent": "V2266A"}
+    return headers
 
 # API Endpoints
 urlElectrocity = "/api/v1/electricity/AccountRefresh"
@@ -46,6 +46,9 @@ urlHomeList = "/api/v1/home/HomeList"
 urlRegion = "/api/v1/common/DistrictList?region="
 urlCountry = "/api/v1/common/RegionList?uz"
 urlElectrocityAccountSearch = "/api/v1/electricity/AccountSearch"
+urlSendSMSLoginIn = "/api/v1/verification/RequestOTP"
+urlSendCodeSMS = "/api/v1/verification/SubmitOTP"
+urLGetAuthToken = "/api/v1/accounts/Login"
 newURL = url+"/api/v1/regions"
 
 
@@ -60,7 +63,8 @@ class AdvMsg(StatesGroup):
 class Ids(StatesGroup):
     homeName = State()
     electricity_id = State()
-
+    phone_number = State()
+    sms_code = State()
 
 
 
@@ -124,6 +128,65 @@ async def format_utility_info(data: dict) -> str:
     )
 
     return text
+def save_json_test(json_file):
+    with open("test.json", "w", encoding="utf=8") as file:
+        json.dump(json_file, file,indent=4)
+async def get_existing_account_info(auth_token, tg_id):
+    headers = await create_header(auth_token)
+    response = requests.get(url=f"{url}{urlHomeList}", headers=headers)
+    data = response.json()
+    home_name = data[0]['address']
+    elec_id = data[0]['electricity']['account']['id']
+    natural_gas_id = data[0]['natural_gas']['account']['id']
+    cold_water_id = data[0]['cold_water']['account']['id']
+    garbage_id = data[0]['garbage']['account']['id']
+    await rq.set_homeList(tgId=tg_id, homeName=home_name, elec_id=elec_id, natural_gas_id=natural_gas_id, cold_water_id=cold_water_id, garbage_id=garbage_id)
+    text = f'''
+    💻I.F.O: {data[0]['owner_full_name']}
+    🏡Manzil: {data[0]['address']}
+    🔥Tabiy gaz: {data[0]['natural_gas']['account']['balance']}
+    ⚡Electro energiya: {data[0]['electricity']['account']['balance']}
+    🚰Sovuq suv energiya: {data[0]['cold_water']['account']['balance']}
+    🚮Chiqqindi energiya: {data[0]['garbage']['account']['balance']}
+'''
+    return text
+async def get_SMS_phone(phone_number):
+    data = {
+    "purpose": "login",
+    "address": phone_number,
+    "client_secret": "Gy3LsrqYGQbXpklBsGKJQdv1xPJJbrIv"
+    }
+    response = requests.post(url=f"{url}{urlSendSMSLoginIn}",json=data)
+    return response.json()
+
+async def login_by_SMS(sussion, code):
+    data = sussion
+    payload = {
+    "session": data,
+    "otp": code,
+    "client_secret": "Gy3LsrqYGQbXpklBsGKJQdv1xPJJbrIv"
+    }
+    response = requests.post(url=f"{url}{urlSendCodeSMS}",json=payload)
+    return response.json()
+async def get_auth_TOKEN(session):
+    data = {
+    "session_data": {
+        "device_id": "db60f8ab597f89d1",
+        "platform": "ANDROID",
+        "device_os": "ANDROID",
+        "device_model": "Samsung SM-A536E",
+        "lang": "uz",
+        "app_version": "2.0.9"
+    },
+    "verification_data": {
+        "session": session,
+        "client_secret": "Gy3LsrqYGQbXpklBsGKJQdv1xPJJbrIv"
+    }
+    }
+    response = requests.post(url=f"{url}{urLGetAuthToken}", json=data)
+    jsonData = response.json()
+    authToken = jsonData['access']
+    return authToken 
 async def electricity_user_account_refresh(userElecInId):
     data = {
     "id": f"{userElecInId}" # id of water account
@@ -197,13 +260,44 @@ async def forward_channel_post(message: Message):
 async def start(message: Message, state: FSMContext):
     user_id = message.from_user.id
     await rq.set_user(tg_id=user_id)
-    home_names_of_user = await rq.get_home_name(user_id)
-    home_names_of_user = list(home_names_of_user)
-    if home_names_of_user != []:
-        reply_markup = kb.create_home_markup_kb(home_names_of_user, user_id)
+    user_token = await rq.get_user_auth_token(user_id)
+    if user_token != None:
+        user_token = str(user_token)
+        home_names_of_user = await rq.get_user_homes(user_id)
+        home_names_of_user = list(home_names_of_user)
+        if home_names_of_user != []:
+            reply_markup = kb.create_home_markup_kb(home_names_of_user)
+        else:
+            reply_markup = kb.home_page
+        await message.answer("Salom, bu bot bilan kop narsa qilsangiz boladi", reply_markup=reply_markup)
     else:
-        reply_markup = kb.home_page
-    await message.answer("Salom, bu bot bilan kop narsa qilsangiz boladi", reply_markup=reply_markup)
+        await state.set_state(Ids.phone_number)
+        await message.answer("Accountga kirish uchun,Telefon nomerizni kiritng:\nMasalan:+998991234567")
+
+
+
+@router.message(Ids.phone_number)
+async def handle_user_phoneNumber(message: Message, state: FSMContext):
+    sms_send = await get_SMS_phone(message.text)
+    await state.update_data(session = sms_send['session'])
+    await state.set_state(Ids.sms_code)
+    await message.answer("Sizning telefon nomerizga SMS kod uborildi, uni kiriting:")
+
+
+@router.message(Ids.sms_code)
+async def handle_sms_code(message: Message, state: FSMContext):
+    sms_code = message.text
+    session = await state.get_data()
+    session = session.get("session")
+    response_json = await login_by_SMS(sussion=session, code=sms_code)
+    await message.answer("LOGIN QILINDI")
+    authToken_from_request = await get_auth_TOKEN(session=session)
+    await rq.set_user_auth_token(authToken_from_request, message.from_user.id)
+    print("TOKEN DBga Kiritldi")
+    await message.answer("Saqlangan uyniy teleon nomeriz bilan kidirilmoqta.")
+    text = await get_existing_account_info(auth_token=authToken_from_request, tg_id=message.from_user.id)
+    await message.answer(text)
+    await message.answer("Boshqattan /start bosing")
 
 
 @router.callback_query(F.data == "create_home")
@@ -217,6 +311,8 @@ async def get_home_name(message: Message, state: FSMContext):
     await state.update_data(homeName=message.text)
     await rq.set_home_name(tg_id=message.from_user.id, home_name=message.text)
     await state.clear()
+    await rq.set_home_name(message.from_user.id, message.text)
+
     await message.answer(f"Uyingiz {message.text} sahlandi,Nima qilmoqchisiz?:")
 
 
@@ -227,12 +323,16 @@ async def get_electricity_id(message: Message, state: FSMContext):
     context_data = await state.get_data()
     
     
-    saved_district_id = context_data.get("district_id")
-    
     user_input = message.text
-    
+    saved_district_id = context_data.get("district_id")
+    saved_target_home_id = context_data.get("target_home_id")
+    add_elec_to_db = await rq.set_electricity_id(saved_target_home_id,electricity_id=user_input)
+    if add_elec_to_db:
+        pass
+    else:
+        print("ERROR ELEC ID IS NOT SAVED")
     user_info_backend = await user_get_electricity_id(user_input, saved_district_id) 
-    # print(user_info_backend)
+    print(user_info_backend) # 
     tmp_message = await message.answer("Ma'lumotlar qabul qilindi.")
     user_bill_data_backend = await electricity_user_account_refresh(user_info_backend[0]["id"])
     # print(user_bill_data_backend)
@@ -325,14 +425,19 @@ async def fill_regions_elecId_query(callback: CallbackQuery, state: FSMContext):
 
 
 
+@router.callback_query(F.data=="add_elec_id_manually")
+async def manual_add_elec_id(callback:CallbackQuery):
+    data = await get_country_regions()
+    reply_markup = kb.create_regions_markup_kb(data,"main")
+    await callback.message.edit_text(f"Chose your region",reply_markup=reply_markup)
 
 @router.callback_query(F.data.startswith("home_"))
-async def unique_home_handler(callback:CallbackQuery):
+async def unique_home_handler(callback:CallbackQuery, state: FSMContext):
     await callback.answer()
-    parts = callback.data.split("_")
-    user_electricity_id = await rq.get_electricity_id(parts[2])
-    await callback.message.edit_text(f"Sizning {parts[2]} Electrick ID raqami: {user_electricity_id}",reply_markup=kb.create_back_button("homes"))
-
+    home_id = callback.data.split("_")[1]
+    await state.update_data(target_home_id=home_id)
+    
+    
 @router.callback_query(F.data.startswith("nav"))
 async def user_navigation_query(callback: CallbackQuery):
     await callback.answer()
