@@ -1,0 +1,14 @@
+## TODO: make home page, create home section, choose home DONE✅
+## TODO: add home to db, when home is chosen add elec, if already added check elec button
+
+
+# TODO: create new auth token DONE✅
+# TODO: test new method 
+# TODO: how to get new auth every time DONE✅
+
+
+# ERROR HANDLING FOR:
+# get sms code
+# send sms code by phone number
+# get not existing home_list
+# refresh authToken when expires
