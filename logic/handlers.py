@@ -146,8 +146,8 @@ async def get_existing_account_info(auth_token, tg_id):
     🏡Manzil: {data[0]['address']}
     🔥Tabiy gaz: {data[0]['natural_gas']['account']['balance']}
     ⚡Electro energiya: {data[0]['electricity']['account']['balance']}
-    🚰Sovuq suv energiya: {data[0]['cold_water']['account']['balance']}
-    🚮Chiqqindi energiya: {data[0]['garbage']['account']['balance']}
+    🚰Sovuq suv: {data[0]['cold_water']['account']['balance']}
+    🚮Chiqqindi: {data[0]['garbage']['account']['balance']}
 '''
     return text
 async def get_SMS_phone(phone_number):
@@ -290,14 +290,13 @@ async def handle_sms_code(message: Message, state: FSMContext):
     session = await state.get_data()
     session = session.get("session")
     response_json = await login_by_SMS(sussion=session, code=sms_code)
-    await message.answer("LOGIN QILINDI")
+    login_message = await message.answer("LOGIN QILINDI🎆")
     authToken_from_request = await get_auth_TOKEN(session=session)
     await rq.set_user_auth_token(authToken_from_request, message.from_user.id)
     print("TOKEN DBga Kiritldi")
-    await message.answer("Saqlangan uyniy teleon nomeriz bilan kidirilmoqta.")
+    inform_message = await login_message.edit_text("Saqlangan uyniy teleon nomeriz bilan kidirilmoqta.🔎")
     text = await get_existing_account_info(auth_token=authToken_from_request, tg_id=message.from_user.id)
-    await message.answer(text)
-    await message.answer("Boshqattan /start bosing")
+    await inform_message.edit_text(text)
 
 
 @router.callback_query(F.data == "create_home")
@@ -436,7 +435,7 @@ async def unique_home_handler(callback:CallbackQuery, state: FSMContext):
     await callback.answer()
     home_id = callback.data.split("_")[1]
     await state.update_data(target_home_id=home_id)
-    
+
     
 @router.callback_query(F.data.startswith("nav"))
 async def user_navigation_query(callback: CallbackQuery):

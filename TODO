@@ -12,3 +12,5 @@
 # send sms code by phone number
 # get not existing home_list
 # refresh authToken when expires
+
+# add refresh button for added communal services
