@@ -16,18 +16,17 @@ class HomeName(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     tg_id = mapped_column(BigInteger)
     home_name = mapped_column(String)
+    natural_gas_id = mapped_column(String)
+    elec_id = mapped_column(String)
+    cold_water_id = mapped_column(String)
+    garbage_id = mapped_column(String)
 
-
-class ElectricityID(Base):
-    __tablename__ = "electricity_ids"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    home_name = mapped_column(String)
-    electricity_id = mapped_column(BigInteger)
 
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     tg_id = mapped_column(BigInteger)
+    auth_token = mapped_column(String)
 
 class Group(Base):
     __tablename__ = "groups"
