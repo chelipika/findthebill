@@ -7,16 +7,10 @@ home_page = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 
-
-## TODAY
-## TODO: make home page, create home section, choose home
-## TODO: add home to db, when home is chosen add elec, if already added check elec button
-
-
-def create_home_markup_kb(home,tgId):
+def create_home_markup_kb(home):
     keyboard = InlineKeyboardBuilder()
     for h in home:
-        keyboard.add(InlineKeyboardButton(text=h,callback_data=f"home_{tgId}_{h}"))
+        keyboard.add(InlineKeyboardButton(text=h.home_name,callback_data=f"home_{h.id}")) # h.id should be fine but not sure
     return keyboard.adjust(2).as_markup()
 
 def create_back_button(nav: str):
